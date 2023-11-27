@@ -1,10 +1,8 @@
 import { Project, parseFromProject } from '@ts-ast-parser/core';
 import ts from 'typescript';
 import kleur from 'kleur'
-
-const localesDir = 'shared/locales/'
-
-const NAMESPACE_SPLITTER = '.'
+import I18nTranslation from './I18nTranslation.js';
+import I18nTranslationReference from './I18nTranslationReference.js';
 
 const traverse = (node: ts.Node, kind: ts.SyntaxKind, onEach: (node: ts.Node) => void) => {
     if (node.kind === kind) {
@@ -26,8 +24,8 @@ const findFirst = (node: ts.Node, kind: ts.SyntaxKind): ts.Node | undefined => {
     return result
 }
 
-const findTranslations = (project: Project): Set<Translation> => {
-    const translations = new Set<Translation>()
+const findTranslations = (project: Project, localesDir: string, namespaceSplitter: string): Set<I18nTranslation> => {
+    const translations = new Set<I18nTranslation>()
 
     project.getModules().forEach((module) => {
         if (module.getTSNode().fileName.includes(localesDir)) {
@@ -36,9 +34,9 @@ const findTranslations = (project: Project): Set<Translation> => {
             if (!objNode) {
                 return
             }
-            traverseObject(objNode, '', (path, node) => {
+            traverseTranslationObject(objNode, '', namespaceSplitter, (path, node) => {
                 if (node.kind === ts.SyntaxKind.StringLiteral || node.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral) {
-                    translations.add(new Translation(
+                    translations.add(new I18nTranslation(
                         lang,
                         path,
                         node.getText().slice(1, -1),
@@ -53,7 +51,7 @@ const findTranslations = (project: Project): Set<Translation> => {
     return translations
 }
 
-const findReferences = (project: Project): Set<TranslationReference> => {
+const findReferences = (project: Project, namespaceSplitter: string): Set<I18nTranslationReference> => {
     const callNodes: ts.Node[] = []
 
     project.getModules().forEach((module) => {
@@ -64,7 +62,7 @@ const findReferences = (project: Project): Set<TranslationReference> => {
         })
     })
 
-    const translationKeys = new Set<TranslationReference>()
+    const translationKeys = new Set<I18nTranslationReference>()
 
     callNodes.forEach((node) => {
         node.forEachChild((child) => {
@@ -73,11 +71,11 @@ const findReferences = (project: Project): Set<TranslationReference> => {
                 const childPos = child.getStart()
                 const line = file.getLineAndCharacterOfPosition(childPos).line
                 let key = child.getText().slice(1, -1)
-                if (!key.includes(NAMESPACE_SPLITTER)) {
-                    key = `common${NAMESPACE_SPLITTER}${key}`
+                if (!key.includes(namespaceSplitter)) {
+                    key = `common${namespaceSplitter}${key}`
                 }
 
-                translationKeys.add(new TranslationReference(
+                translationKeys.add(new I18nTranslationReference(
                     key,
                     file,
                     line,
@@ -89,7 +87,7 @@ const findReferences = (project: Project): Set<TranslationReference> => {
     return translationKeys
 }
 
-const traverseObject = (node: ts.Node, keyPath: string, onEach: (path: string, node: ts.Node) => void) => {
+const traverseTranslationObject = (node: ts.Node, keyPath: string, namespaceSplitter: string, onEach: (path: string, node: ts.Node) => void) => {
     node.forEachChild((child) => {
         if (child.kind === ts.SyntaxKind.PropertyAssignment) {
             const nameNode = child.getChildAt(0)
@@ -100,9 +98,9 @@ const traverseObject = (node: ts.Node, keyPath: string, onEach: (path: string, n
                 name = name.slice(1, -1)
             }
 
-            const newKeyPath = keyPath ? `${keyPath}${NAMESPACE_SPLITTER}${name}` : name
+            const newKeyPath = keyPath ? `${keyPath}${namespaceSplitter}${name}` : name
             if (value.kind === ts.SyntaxKind.ObjectLiteralExpression) {
-                traverseObject(value, newKeyPath, onEach)
+                traverseTranslationObject(value, newKeyPath, namespaceSplitter, onEach)
             } else {
                 onEach(newKeyPath, value)
             }
@@ -132,68 +130,36 @@ export const analyse = async () => {
         return;
     }
 
-    const translations = findTranslations(project)
-    translations.forEach((translation) => {
-        console.log(translation.toString())
+    const localesDir = 'shared/locales/'
+    const namespaceSplitter = '.'
+
+    const translations = findTranslations(project, localesDir, namespaceSplitter)
+    translations.forEach((t) => {
+        console.log(t.toString())
     })
 
-    const references = findReferences(project)
+    const references = findReferences(project, namespaceSplitter)
     references.forEach((reference) => {
         console.log(reference.toString())
     })
 
     const missingTranslations = Array.from(references).filter((reference) => {
-        const translation = Array.from(translations).find((translation) => translation.key === reference.key)
-        return !translation
+        const I18nTranslation = Array.from(translations).find((t) => t.key === reference.key)
+        return !I18nTranslation
     })
 
-    const unusedTranslations = Array.from(translations).filter((translation) => {
-        const reference = Array.from(references).find((reference) => reference.key === translation.key)
+    const unusedTranslations = Array.from(translations).filter((t) => {
+        const reference = Array.from(references).find((reference) => reference.key === t.key)
         return !reference
     })
 
     console.log(kleur.bold().underline().green('Missing translations:'))
-    missingTranslations.forEach((translation) => {
-        console.log(kleur.red(translation.toString()))
+    missingTranslations.forEach((I18nTranslation) => {
+        console.log(kleur.red(I18nTranslation.toString()))
     })
 
     console.log(kleur.bold().underline().green('Unused translations:'))
-    unusedTranslations.forEach((translation) => {
-        console.log(kleur.red(translation.toString()))
+    unusedTranslations.forEach((I18nTranslation) => {
+        console.log(kleur.red(I18nTranslation.toString()))
     })
-}
-
-class TranslationReference {
-    constructor(
-        public key: string,
-        public file: ts.SourceFile,
-        public line: number,
-    ) {}
-
-    toString() {
-        return `${this.key} ${this.file.fileName.replace(process.cwd(), '')}:${this.line}`
-    }
-
-    equals(other: TranslationReference) {
-        return this.key === other.key
-    }
-}
-
-class Translation {
-
-    constructor(
-        public lang: string,
-        public key: string,
-        public value: string,
-        public file: ts.SourceFile,
-        public line: number,
-    ) {}
-
-    toString() {
-        return `${this.lang} ${this.key}`
-    }
-
-    equals(other: Translation) {
-        return this.key === other.key && this.lang === other.lang
-    }
 }
