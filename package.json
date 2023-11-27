@@ -1,0 +1,29 @@
+{
+  "name": "mr-jswide",
+  "bin": {
+    "translations": "./dist/index.js"
+  },
+  "version": "1.0.0",
+  "description": "",
+  "exports": "./dist/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "scripts": {
+    "dev": "tsc -w",
+    "build" : "tsc"
+  },
+  "keywords": [],
+  "author": "Veikkosuhonen",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^20.5.7"
+  },
+  "dependencies": {
+    "@ts-ast-parser/core": "^0.6.3",
+    "commander": "^11.0.0",
+    "kleur": "^4.1.5",
+    "typescript": "^5.2.2"
+  }
+}
